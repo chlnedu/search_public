@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>초등 맞춤형 조사학습 앱 - 구글시트 연동형</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <!-- HTML2Canvas (화면 캡처용) -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <!-- PapaParse (구글 시트 CSV 파싱용) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- QRCode.js (학생용 접속 QR코드 생성용) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- HTML5-QRCode (학생 앱 내장 카메라 스캔용) -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"Noto Sans KR"', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            desk: '#1E293B', ivory: '#F9F8F4', blue: '#4A90E2',
+                            green: '#2ECC71', yellow: '#FFD13B', pink: '#FF9A9E'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #1E293B; 
+            font-family: 'Noto Sans KR', sans-serif;
+            margin: 0;
+            overflow: hidden; 
+        }
+
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 10px; border: 3px solid #FFF; }
+        ::-webkit-scrollbar-thumb:hover { background: #B3B3B3; }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none; border-color: #4A90E2; box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.2); transition: all 0.2s ease;
+        }
+
+        .notebook-line {
+            background-image: repeating-linear-gradient(transparent, transparent 31px, #E5E7EB 31px, #E5E7EB 32px);
+            line-height: 32px;
+        }
+        textarea.notebook-line { padding: 8px 12px; }
+        .btn-press:active { transform: scale(0.96); }
+        .touch-none { touch-action: none; }
+
+        /* 구글 맞춤검색창(CSE) 스타일 덮어쓰기 */
+        .gsc-control-cse { background-color: transparent !important; border: none !important; padding: 0 !important; font-family: 'Noto Sans KR', sans-serif !important; }
+        .gsc-search-box { display: none !important; }
+        .gsc-result { background: transparent !important; padding: 10px 0 !important; }
+        .gs-title { text-decoration: none !important; color: #2563EB !important; font-weight: bold !important; }
+        .gs-snippet { font-size: 14px !important; color: #4B5563 !important; line-height: 1.6 !important; }
+    </style>
+</head>
+<body class="h-screen w-screen relative">
+
+    <div id="role-overlay" class="fixed inset-0 bg-brand-desk z-[100] flex items-center justify-center p-4 transition-opacity duration-500">
+        <div class="bg-white rounded-3xl shadow-2xl p-10 max-w-2xl w-full flex flex-col items-center gap-8 text-center">
+            <div class="space-y-2">
+                <h1 class="text-3xl md:text-4xl font-black text-gray-800 tracking-tight">초등 맞춤형 조사학습 앱</h1>
+                <p class="text-gray-500 font-medium">안전하고 스마트한 나만의 탐구 기록장</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mt-4">
+                <!-- 선생님 버튼 -->
+                <button id="btn-role-teacher" class="flex flex-col items-center gap-4 p-8 rounded-2xl border-2 border-blue-100 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all btn-press group">
+                    <div class="text-6xl group-hover:scale-110 transition-transform">👩‍🏫</div>
+                    <div>
+                        <h2 class="text-xl font-bold text-blue-800">선생님</h2>
+                        <p class="text-sm text-blue-600 mt-2 font-medium">구글 시트 연동 및<br>학생 배포용 링크 생성</p>
+                    </div>
+                </button>
+
+                <!-- 학생 버튼 -->
+                <button id="btn-role-student" class="flex flex-col items-center gap-4 p-8 rounded-2xl border-2 border-green-100 bg-green-50 hover:bg-green-100 hover:border-green-300 transition-all btn-press group">
+                    <div class="text-6xl group-hover:scale-110 transition-transform">👦👧</div>
+                    <div>
+                        <h2 class="text-xl font-bold text-green-800">학생</h2>
+                        <p class="text-sm text-green-600 mt-2 font-medium">선생님이 주신<br>링크나 코드로 입장하기</p>
+                    </div>
+                </button>
+
+                <!-- 테스트용 체험 버튼 (튜토리얼) -->
+                <div class="col-span-1 md:col-span-2 mt-2 w-full">
+                    <button id="btn-role-tutorial" class="w-full flex items-center justify-center gap-4 p-5 rounded-2xl border-2 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:border-purple-300 transition-all btn-press text-purple-800">
+                        <span class="text-4xl">🕹️</span>
+                        <div class="text-left">
+                            <h2 class="text-lg font-bold">테스트용 체험하기 (튜토리얼)</h2>
+                            <p class="text-xs text-purple-600 mt-1 font-medium">구글 설정 없이 가상 데이터로 앱 기능을 미리 둘러봅니다.</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 👩‍🏫 선생님 설정 모달 -->
+    <div id="teacher-setup-modal" class="fixed inset-0 bg-brand-desk z-[110] hidden flex-col items-center justify-center p-4 transition-opacity overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full flex flex-col gap-6 my-auto">
+            <div class="flex justify-between items-center border-b pb-4">
+                <h2 class="text-2xl font-black text-gray-800 flex items-center gap-2"><span>👩‍🏫</span> 선생님 전용 환경설정</h2>
+                <button id="btn-close-teacher" class="text-gray-400 hover:text-red-500 transition-colors btn-press p-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-5 overflow-y-auto max-h-[60vh] pr-2">
+                <!-- Step 1 -->
+                <div class="bg-blue-50 p-5 rounded-2xl border border-blue-100">
+                    <h3 class="text-blue-800 font-bold mb-2">Step 1. 구글 시트 데이터베이스 준비하기</h3>
+                    <ol class="list-decimal list-inside text-sm text-blue-900/80 space-y-1.5 ml-1">
+                        <li>구글 스프레드시트를 생성하고 첫 줄(헤더)에 아래와 같이 입력합니다.<br>
+                            <code class="bg-white px-2 py-1 rounded text-blue-600 font-bold text-xs mt-1 inline-block border border-blue-200">학년 | 과목 | 단원 | 차시 | 기본키워드 | 융합키워드</code>
+                        </li>
+                        <li>2번째 줄부터 데이터를 쉼표(,)로 구분하여 입력합니다.</li>
+                        <li>우측 상단 <strong>[공유]</strong> 버튼을 눌러 <strong>'링크가 있는 모든 사용자 보기'</strong>로 설정합니다.</li>
+                    </ol>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="bg-purple-50 p-5 rounded-2xl border border-purple-100">
+                    <h3 class="text-purple-800 font-bold mb-2">Step 2. 구글 검색엔진 ID 발급 (안전 검색용)</h3>
+                    <p class="text-sm text-purple-900/80 mb-2">학생들이 유해 사이트에 접근하지 못하도록 교육용 사이트만 허용하는 화이트리스트 검색엔진을 만듭니다.</p>
+                    <a href="https://programmablesearchengine.google.com/controlpanel/all" target="_blank" class="inline-block bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors mb-3 shadow-sm btn-press">⚙️ 맞춤검색 제어판 바로가기</a>
+                    <ol class="list-decimal list-inside text-sm text-purple-900/80 space-y-1.5 ml-1">
+                        <li>위 링크에 접속하여 <strong>[추가]</strong> 버튼을 누릅니다.</li>
+                        <li>'검색할 특정 사이트'에 아래 예시를 복사해 넣습니다.<br>
+                            <code class="bg-white px-2 py-1 rounded text-purple-600 font-bold text-xs mt-1 block border border-purple-200">*.go.kr (정부/관공서)<br>*.es.kr (초등학교)<br>terms.naver.com (네이버 지식백과)<br>ko.wikipedia.org (위키백과)</code>
+                        </li>
+                        <li>만들기 후, <strong>'검색엔진 ID'</strong>를 복사합니다.</li>
+                    </ol>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="bg-gray-50 p-5 rounded-2xl border border-gray-200">
+                    <h3 class="text-gray-800 font-bold mb-4">Step 3. 설정 입력 및 학생 배포용 링크/QR 생성</h3>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">🔗 구글 시트 공유 주소</label>
+                            <input type="text" id="input-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/..." class="w-full border border-gray-300 px-4 py-3 rounded-xl text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">🔑 구글 검색엔진 ID (CX)</label>
+                            <input type="text" id="input-cse-id" placeholder="예: a32d07a979a874bb8" class="w-full border border-gray-300 px-4 py-3 rounded-xl text-sm">
+                        </div>
+                        <button id="btn-generate-link" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors btn-press shadow-md text-lg mt-2">학생 배포용 설정 완료하기</button>
+                    </div>
+                </div>
+                
+                <!-- 결과 출력 영역 (링크 + QR) -->
+                <div id="result-link-area" class="hidden flex-col items-center gap-4 bg-green-50 p-6 rounded-2xl border-2 border-green-200">
+                    <p class="text-green-800 font-bold text-center">🎉 설정 완료! 학생들에게 아래 QR이나 링크를 공유하세요.</p>
+                    
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-green-100 flex items-center justify-center">
+                        <div id="qrcode"></div>
+                    </div>
+                    <p class="text-xs text-green-600 text-center -mt-2 font-medium">태블릿 기본 카메라로 찍으면 1초 만에 바로 입장됩니다!</p>
+
+                    <div class="w-full flex gap-2">
+                        <input type="text" id="output-student-link" readonly class="flex-1 bg-white border border-green-200 text-green-800 text-sm rounded-xl px-4 py-2 font-medium outline-none">
+                        <button id="btn-copy-link" class="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-700 transition-colors shadow-sm btn-press whitespace-nowrap">복사</button>
+                    </div>
+                    
+                    <div class="w-full mt-2 pt-4 border-t border-green-200/50">
+                        <button id="btn-test-run" class="w-full bg-white border-2 border-green-400 text-green-700 hover:bg-green-100 font-bold py-3 rounded-xl transition-colors btn-press shadow-sm flex justify-center items-center gap-2">
+                            <span>👩‍🏫 교사 모드로 직접 접속해보기</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="student-entry-modal" class="fixed inset-0 bg-brand-desk z-[110] hidden flex-col items-center justify-center p-4 transition-opacity">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full flex flex-col items-center text-center gap-6">
+            <h2 class="text-2xl font-black text-gray-800">학생 입장</h2>
+            
+            <!-- 이전에 접속한 기록이 있을 때 표시되는 영역 -->
+            <div id="student-history-area" class="w-full hidden flex-col gap-3">
+                <p class="text-sm text-gray-600 font-medium">이전에 접속했던 교실이 기억되어 있어요!</p>
+                <button id="btn-enter-saved" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-md transition-colors text-lg btn-press">
+                    🚀 내 교실로 바로 입장하기
+                </button>
+                <div class="flex items-center w-full my-2">
+                    <div class="flex-1 border-t border-gray-200"></div>
+                    <span class="px-3 text-xs text-gray-400">또는</span>
+                    <div class="flex-1 border-t border-gray-200"></div>
+                </div>
+            </div>
+
+            <!-- QR 스캐너 영역 -->
+            <div class="w-full flex flex-col items-center gap-3">
+                <p class="text-gray-600 font-medium text-sm">처음 왔거나 다른 교실로 가려면<br><strong class="text-blue-500">선생님이 보여주신 QR 코드</strong>를 스캔하세요.</p>
+                <div id="qr-reader" class="w-full max-w-[300px] rounded-xl overflow-hidden border border-gray-200 bg-gray-50 min-h-[250px] flex items-center justify-center relative shadow-inner">
+                    <span id="qr-reader-placeholder" class="text-gray-400 text-sm">카메라 화면이 이곳에 나옵니다.</span>
+                </div>
+                <button id="btn-start-scan" class="bg-blue-100 text-blue-700 hover:bg-blue-200 px-5 py-2.5 rounded-lg text-sm font-bold transition-colors shadow-sm btn-press">📷 스캐너 켜기</button>
+            </div>
+
+            <button id="btn-close-student" class="w-full mt-2 bg-gray-100 text-gray-600 hover:bg-gray-200 font-bold py-3 rounded-xl transition-colors btn-press">처음 화면으로 돌아가기</button>
+        </div>
+    </div>
+
+    <div id="loading-overlay" class="fixed inset-0 bg-brand-desk z-[200] hidden flex-col items-center justify-center gap-6 transition-opacity">
+        <div class="w-16 h-16 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
+        <p id="loading-text" class="text-white font-bold text-xl tracking-wide">선생님이 준비하신 자료를 불러오는 중...</p>
+    </div>
+
+
+    <main id="main-app" class="h-full w-full p-4 md:p-6 flex gap-6 box-border items-center justify-center hidden opacity-0 transition-opacity duration-1000">
+        
+        <!-- [1] 왼쪽 화면: 검색 및 탐구 영역 -->
+        <section class="w-[55%] h-full bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden p-6 gap-5 relative">
+            <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-400 to-green-400"></div>
+
+            <!-- 헤더: 4단계 드롭다운 (설정 버튼 삭제됨) -->
+            <header class="flex gap-2 relative">
+                <select id="grade-select" class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-full px-3 py-2.5 font-medium cursor-pointer hover:bg-gray-100 flex-1 appearance-none shadow-sm disabled:opacity-50">
+                    <option value="">🏫 학년 선택</option>
+                </select>
+                <select id="subject-select" class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-full px-3 py-2.5 font-medium cursor-pointer hover:bg-gray-100 flex-1 appearance-none shadow-sm disabled:opacity-50" disabled>
+                    <option value="">📚 과목 선택</option>
+                </select>
+                <select id="unit-select" class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-full px-3 py-2.5 font-medium cursor-pointer hover:bg-gray-100 flex-1 appearance-none shadow-sm disabled:opacity-50" disabled>
+                    <option value="">📖 단원 선택</option>
+                </select>
+                <select id="lesson-select" class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-full px-3 py-2.5 font-medium cursor-pointer hover:bg-gray-100 flex-1 appearance-none shadow-sm disabled:opacity-50" disabled>
+                    <option value="">⏰ 차시 선택</option>
+                </select>
+            </header>
+
+            <!-- 검색창 -->
+            <div class="relative w-full group flex items-center">
+                <input type="text" id="search-input" placeholder="궁금한 내용을 입력해보세요!" class="w-full bg-blue-50/30 border-2 border-blue-100 text-gray-800 text-lg rounded-full pl-6 pr-14 py-4 placeholder-blue-300 font-medium focus:bg-white transition-colors">
+                <button id="search-btn" class="absolute right-3 bg-blue-500 text-white p-2.5 rounded-full hover:bg-blue-600 transition-all active:scale-95 shadow-md shadow-blue-200 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                </button>
+            </div>
+
+            <!-- 키워드 자판기 -->
+            <div class="flex flex-col gap-2">
+                <p class="text-sm font-bold text-gray-500 px-2 flex items-center gap-1">
+                    <span>💡 추천 키워드 자판기</span>
+                </p>
+                <div id="keyword-container" class="flex flex-wrap gap-2 min-h-[40px] items-center"></div>
+            </div>
+
+            <!-- 구글 검색 결과창 -->
+            <div class="flex-1 bg-gray-50/50 rounded-2xl border-2 border-dashed border-gray-200 relative overflow-hidden flex flex-col">
+                <div id="search-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 gap-3 z-10 transition-opacity">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                    <p class="font-medium text-center leading-relaxed">검색어를 입력하면<br>이곳에 구글 검색 결과가 나타납니다.</p>
+                </div>
+                <div id="cse-wrapper" class="w-full h-full overflow-y-auto px-4 py-2 z-20 opacity-0 pointer-events-none transition-opacity">
+                    <div class="gcse-search"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- [2] 오른쪽 화면: 3단 변신 퀘스트 보드 영역 -->
+        <section id="capture-section" class="w-[45%] h-full bg-[#FFFCF3] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
+            <div class="absolute top-0 bottom-0 left-3 w-4 border-r-2 border-dashed border-yellow-300/60 z-0"></div>
+            <div id="capture-date" class="absolute top-7 right-7 text-gray-500 font-bold text-sm bg-white/90 px-4 py-1.5 rounded-full shadow-sm hidden z-50 border border-gray-200"></div>
+
+            <div class="px-7 pt-7 pb-4 bg-[#FFFCF3] z-10 border-b border-yellow-100">
+                <div class="flex justify-between items-end mb-4">
+                    <h1 class="text-2xl font-black text-gray-800 relative z-10">
+                        <span class="relative">나만의 탐구 기록장 📝<span class="absolute bottom-1 left-0 w-full h-3 bg-yellow-200/50 -z-10 rounded-sm"></span></span>
+                    </h1>
+                </div>
+                
+                <div class="bg-white border border-gray-200 p-1 rounded-full flex gap-1 w-full max-w-sm shadow-inner relative z-10" data-html2canvas-ignore>
+                    <button id="mode-notebook" class="mode-btn flex-1 rounded-full py-1.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 transition-all btn-press" data-mode="notebook">📝 공책 모드</button>
+                    <button id="mode-typing" class="mode-btn flex-1 bg-gray-800 text-white shadow-sm rounded-full py-1.5 text-sm font-bold transition-all btn-press" data-mode="typing">⌨️ 타자 모드</button>
+                    <button id="mode-pencil" class="mode-btn flex-1 rounded-full py-1.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 transition-all btn-press" data-mode="pencil">✏️ 펜슬 모드</button>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-7 py-5 pb-24 flex flex-col gap-6 relative z-10">
+                <!-- 퀘스트 1 -->
+                <article class="quest-card bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-3 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-blue-400"></div>
+                    <h3 class="quest-title font-bold text-gray-800 pl-2 text-lg transition-all duration-300">Q1. 오늘 조사한 핵심 단어 2개는?</h3>
+                    <div class="input-notebook hidden flex-col items-center justify-center p-4 bg-blue-50/40 rounded-xl border-2 border-blue-100 border-dashed">
+                        <span class="text-2xl mb-1">✍️</span><p class="text-blue-600 font-bold text-sm text-center">배움 공책에 질문의 답을<br>정성껏 적어보세요!</p>
+                    </div>
+                    <textarea class="input-typing w-full bg-transparent resize-none notebook-line text-gray-700 font-medium" rows="2" placeholder="이곳에 적어보세요..."></textarea>
+                    <div class="input-pencil hidden flex-col w-full h-32 relative">
+                        <div class="absolute top-1 right-2 flex gap-1 z-10" data-html2canvas-ignore><button class="bg-gray-800 text-white rounded-md px-2 py-1 text-xs font-bold shadow-sm cursor-default">✏️ 펜</button><button class="tool-clear bg-white text-red-500 border border-red-200 hover:bg-red-50 transition-colors rounded-md px-2 py-1 text-xs font-bold shadow-sm btn-press">🗑️ 전체지우기</button></div>
+                        <canvas class="draw-canvas w-full h-full rounded-xl notebook-line border-2 border-gray-100 cursor-crosshair touch-none mt-4"></canvas>
+                    </div>
+                </article>
+
+                <!-- 퀘스트 2 -->
+                <article class="quest-card bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-3 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-green-400"></div>
+                    <div class="flex items-center justify-between pl-2">
+                        <h3 class="quest-title font-bold text-gray-800 text-lg transition-all duration-300">Q2. 더 깊이 알아보기</h3>
+                        <select id="q2-select" class="bg-green-50 text-green-700 text-sm border border-green-200 rounded-lg px-2 py-1 font-bold cursor-pointer outline-none" data-html2canvas-ignore><option value="">질문 고르기 ▾</option></select>
+                    </div>
+                    <div class="input-notebook hidden flex-col items-center justify-center p-4 bg-green-50/40 rounded-xl border-2 border-green-100 border-dashed">
+                        <span class="text-2xl mb-1">✍️</span><p id="q2-notebook-text" class="text-green-600 font-bold text-sm text-center leading-relaxed">선택한 질문에 대한 생각을<br>배움 공책에 적어보세요!</p>
+                    </div>
+                    <textarea id="q2-textarea" class="input-typing w-full bg-transparent resize-none notebook-line text-gray-700 font-medium" rows="3" placeholder="나의 생각을 자유롭게 적어보세요."></textarea>
+                    <div class="input-pencil hidden flex-col w-full h-40 relative">
+                        <div class="absolute top-1 right-2 flex gap-1 z-10" data-html2canvas-ignore><button class="bg-gray-800 text-white rounded-md px-2 py-1 text-xs font-bold shadow-sm cursor-default">✏️ 펜</button><button class="tool-clear bg-white text-red-500 border border-red-200 hover:bg-red-50 transition-colors rounded-md px-2 py-1 text-xs font-bold shadow-sm btn-press">🗑️ 전체지우기</button></div>
+                        <canvas class="draw-canvas w-full h-full rounded-xl notebook-line border-2 border-gray-100 cursor-crosshair touch-none mt-4"></canvas>
+                    </div>
+                </article>
+
+                <!-- 퀘스트 3 -->
+                <article class="quest-card bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-3 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1.5 h-full bg-yellow-400"></div>
+                    <h3 class="quest-title font-bold text-gray-800 pl-2 text-lg transition-all duration-300">Q3. 새롭게 떠오른 질문이 있나요?</h3>
+                    <div class="input-notebook hidden flex-col items-center justify-center p-4 bg-yellow-50/40 rounded-xl border-2 border-yellow-200 border-dashed">
+                        <span class="text-2xl mb-1">✍️</span><p class="text-yellow-700 font-bold text-sm text-center">나만의 멋진 질문을<br>배움 공책에 만들어 보세요!</p>
+                    </div>
+                    <textarea class="input-typing w-full bg-transparent resize-none notebook-line text-gray-700 font-medium" rows="2" placeholder="예: 만약 북극곰이 숲으로 이사를 온다면?"></textarea>
+                    <div class="input-pencil hidden flex-col w-full h-32 relative">
+                        <div class="absolute top-1 right-2 flex gap-1 z-10" data-html2canvas-ignore><button class="bg-gray-800 text-white rounded-md px-2 py-1 text-xs font-bold shadow-sm cursor-default">✏️ 펜</button><button class="tool-clear bg-white text-red-500 border border-red-200 hover:bg-red-50 transition-colors rounded-md px-2 py-1 text-xs font-bold shadow-sm btn-press">🗑️ 전체지우기</button></div>
+                        <canvas class="draw-canvas w-full h-full rounded-xl notebook-line border-2 border-gray-100 cursor-crosshair touch-none mt-4"></canvas>
+                    </div>
+                </article>
+            </div>
+
+            <div class="absolute bottom-0 left-0 w-full p-5 bg-gradient-to-t from-[#FFFCF3] via-[#FFFCF3] to-transparent z-20" data-html2canvas-ignore>
+                <button id="submit-btn" class="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-black text-lg py-4 rounded-2xl shadow-lg transform transition-all btn-press border border-yellow-500/30 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
+                    <span>탐구 완료! 이미지로 저장하기</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- 💬 모달: 공통 메시지 창 (alert 대체) -->
+    <div id="message-box" class="fixed inset-0 bg-black/50 z-[300] hidden flex items-center justify-center transition-opacity" data-html2canvas-ignore>
+        <div class="bg-white p-6 rounded-2xl shadow-xl min-w-[300px] max-w-sm text-center flex flex-col gap-5 transform scale-95 transition-transform">
+            <p id="message-text" class="text-gray-800 font-bold text-lg whitespace-pre-line"></p>
+            <button id="message-close" class="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-bold hover:bg-blue-600 transition-colors mx-auto w-full shadow-md">확인</button>
+        </div>
+    </div>
+
+    <!-- 🦉 튜토리얼 패널 (가이드 말풍선) -->
+    <div id="tutorial-panel" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-[300] hidden bg-white rounded-2xl p-6 shadow-2xl border-4 border-purple-500 max-w-lg w-full flex items-center gap-5 transition-all duration-500 translate-y-10 opacity-0" data-html2canvas-ignore>
+        <div class="text-5xl animate-bounce">🦉</div>
+        <div class="flex-1">
+            <p id="tutorial-message" class="text-gray-800 font-bold text-base leading-relaxed whitespace-pre-line"></p>
+        </div>
+        <div class="flex flex-col gap-2">
+            <button id="btn-tut-next" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md btn-press whitespace-nowrap">다음 ➔</button>
+            <button id="btn-tut-skip" class="text-gray-400 hover:text-gray-600 text-xs font-bold px-2 btn-press whitespace-nowrap">그만보기</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 유틸리티 함수 ---
+        function showMessage(text, callback) {
+            const box = document.getElementById('message-box');
+            document.getElementById('message-text').innerText = text;
+            box.classList.remove('hidden');
+            document.getElementById('message-close').onclick = () => {
+                box.classList.add('hidden');
+                if (callback) callback();
+            };
+        }
+
+        // --- 2. 상태 관리 변수 ---
+        let lessonData = {}; // 구글 시트에서 가져올 파싱된 데이터 저장소
+        let ACTIVE_CSE_ID = ""; // 사용될 구글 검색엔진 ID
+        let isTutorialMode = false; // 💡 튜토리얼(가상 테스트) 모드 여부
+
+        // --- 3. 초기 흐름 제어 (URL 파라미터 감지) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sheetId = urlParams.get('sheet');
+            const cseId = urlParams.get('cse');
+
+            if (sheetId && cseId) {
+                // 👦👧 파라미터가 있으면 자동으로 [학생 모드] 실행
+                // 💡 핵심: 태블릿 기본 카메라로 QR을 찍고 들어온 학생의 기기에도 접속 정보를 저장 (자동 로그인용)
+                localStorage.setItem('student_sheet_id', sheetId);
+                localStorage.setItem('student_cse_id', cseId);
+
+                document.getElementById('role-overlay').style.display = 'none';
+                startAppProcess(sheetId, cseId);
+            } else {
+                // 파라미터가 없으면 [역할 선택 모달] 표시 유지
+                // 선생님용 로컬 스토리지에 저장된 이전 기록이 있으면 불러오기
+                const savedUrl = localStorage.getItem('teacher_sheet_url') || "";
+                const savedCse = localStorage.getItem('teacher_cse_id') || "";
+                document.getElementById('input-sheet-url').value = savedUrl;
+                document.getElementById('input-cse-id').value = savedCse;
+            }
+        });
+
+        // --- 4. 역할 선택 버튼 및 QR 카메라 이벤트 ---
+        let html5QrCode = null; // QR 스캐너 인스턴스
+
+        document.getElementById('btn-role-teacher').addEventListener('click', () => {
+            document.getElementById('role-overlay').classList.add('hidden');
+            document.getElementById('teacher-setup-modal').classList.remove('hidden');
+            document.getElementById('teacher-setup-modal').classList.add('flex');
+        });
+
+        document.getElementById('btn-role-student').addEventListener('click', () => {
+            document.getElementById('role-overlay').classList.add('hidden');
+            document.getElementById('student-entry-modal').classList.remove('hidden');
+            document.getElementById('student-entry-modal').classList.add('flex');
+
+            // 학생 기기에 저장된 과거 접속 기록이 있는지 확인 (자동 로그인 판별)
+            const savedSheet = localStorage.getItem('student_sheet_id');
+            const savedCse = localStorage.getItem('student_cse_id');
+            
+            if (savedSheet && savedCse) {
+                document.getElementById('student-history-area').classList.remove('hidden');
+                document.getElementById('student-history-area').classList.add('flex');
+                
+                document.getElementById('btn-enter-saved').onclick = () => {
+                    document.getElementById('student-entry-modal').classList.add('hidden');
+                    document.getElementById('student-entry-modal').classList.remove('flex');
+                    document.getElementById('role-overlay').style.display = 'none';
+                    startAppProcess(savedSheet, savedCse);
+                };
+            }
+        });
+
+        // 스캐너 켜기 버튼 (앱 내부 스캔 기능)
+        document.getElementById('btn-start-scan').addEventListener('click', () => {
+            document.getElementById('qr-reader-placeholder').style.display = 'none';
+            document.getElementById('btn-start-scan').style.display = 'none';
+            
+            html5QrCode = new Html5Qrcode("qr-reader");
+            html5QrCode.start(
+                { facingMode: "environment" }, // 후면 카메라 우선
+                { fps: 10, qrbox: { width: 200, height: 200 } },
+                (decodedText) => {
+                    try {
+                        const url = new URL(decodedText);
+                        const sheetId = url.searchParams.get('sheet');
+                        const cseId = url.searchParams.get('cse');
+                        
+                        if (sheetId && cseId) {
+                            html5QrCode.stop().then(() => {
+                                // 스캔 성공 시 정보 저장(다음 번 자동 접속용) 후 앱 구동
+                                localStorage.setItem('student_sheet_id', sheetId);
+                                localStorage.setItem('student_cse_id', cseId);
+                                
+                                document.getElementById('student-entry-modal').classList.add('hidden');
+                                document.getElementById('student-entry-modal').classList.remove('flex');
+                                document.getElementById('role-overlay').style.display = 'none';
+                                startAppProcess(sheetId, cseId);
+                            });
+                        } else {
+                            showMessage("해당 앱 전용 QR 코드가 아닙니다.");
+                        }
+                    } catch(e) {
+                        showMessage("올바른 형태의 QR 코드가 아닙니다.");
+                    }
+                },
+                (errorMessage) => {
+                    // 스캔 진행 중 에러 무시
+                }
+            ).catch(err => {
+                showMessage("카메라 권한을 허용해주세요!\n또는 기기의 '기본 카메라 앱'으로 찍으면 훨씬 쉽게 접속됩니다.");
+                document.getElementById('btn-start-scan').style.display = 'block';
+                document.getElementById('qr-reader-placeholder').style.display = 'block';
+            });
+        });
+
+        document.getElementById('btn-close-teacher').addEventListener('click', () => {
+            document.getElementById('teacher-setup-modal').classList.add('hidden');
+            document.getElementById('teacher-setup-modal').classList.remove('flex');
+            document.getElementById('role-overlay').classList.remove('hidden');
+        });
+
+        document.getElementById('btn-close-student').addEventListener('click', () => {
+            // 학생 모달 닫을 때 카메라가 켜져있다면 끄기
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                }).catch(err => console.error(err));
+            }
+            document.getElementById('btn-start-scan').style.display = 'block';
+            document.getElementById('qr-reader-placeholder').style.display = 'block';
+            
+            document.getElementById('student-entry-modal').classList.add('hidden');
+            document.getElementById('student-entry-modal').classList.remove('flex');
+            document.getElementById('role-overlay').classList.remove('hidden');
+        });
+
+        // --- 5. 선생님 모드: 링크 생성 로직 ---
+        function extractGoogleSheetId(url) {
+            const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            return match ? match[1] : url.trim(); // URL 형식이면 ID 추출, 아니면 그대로 반환
+        }
+
+        document.getElementById('btn-generate-link').addEventListener('click', () => {
+            const rawUrl = document.getElementById('input-sheet-url').value;
+            const cseId = document.getElementById('input-cse-id').value.trim();
+
+            if (!rawUrl || !cseId) {
+                showMessage("구글 시트 주소와 검색엔진 ID를 모두 입력해주세요.");
+                return;
+            }
+
+            const sheetId = extractGoogleSheetId(rawUrl);
+            
+            // 로컬 스토리지에 저장 (선생님 편의성)
+            localStorage.setItem('teacher_sheet_url', rawUrl);
+            localStorage.setItem('teacher_cse_id', cseId);
+
+            // 링크 조합
+            const baseUrl = window.location.origin + window.location.pathname;
+            const studentLink = `${baseUrl}?sheet=${sheetId}&cse=${cseId}`;
+
+            // 화면에 표시
+            const outputEl = document.getElementById('output-student-link');
+            outputEl.value = studentLink;
+            document.getElementById('result-link-area').classList.remove('hidden');
+            document.getElementById('result-link-area').classList.add('flex');
+
+            // 💡 QR 코드 자동 생성
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = ""; // 기존 QR 삭제
+            new QRCode(qrContainer, {
+                text: studentLink,
+                width: 160,
+                height: 160,
+                colorDark : "#1E293B",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
+            });
+        });
+
+        document.getElementById('btn-copy-link').addEventListener('click', () => {
+            const link = document.getElementById('output-student-link').value;
+            navigator.clipboard.writeText(link).then(() => {
+                showMessage("✅ 복사되었습니다!\n학생들에게 링크를 전달해 주세요.");
+            }).catch(() => {
+                // 복사 실패 시 대체 수단
+                const outputEl = document.getElementById('output-student-link');
+                outputEl.select();
+                document.execCommand('copy');
+                showMessage("✅ 복사되었습니다!\n학생들에게 링크를 전달해 주세요.");
+            });
+        });
+
+        // 교사가 직접 본인 세팅으로 테스트 접속
+        document.getElementById('btn-test-run').addEventListener('click', () => {
+            const link = document.getElementById('output-student-link').value;
+            window.location.href = link;
+        });
+
+        // --- 6. 구글 시트 데이터 Fetch 및 파싱 (핵심) ---
+        function startAppProcess(sheetId, cseId) {
+            // 로딩창 띄우기
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            document.getElementById('loading-overlay').classList.add('flex');
+            
+            ACTIVE_CSE_ID = cseId;
+
+            // 구글 시트를 CSV 형식으로 가져오는 마법의 URL (공개 시트 필수)
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+
+            Papa.parse(csvUrl, {
+                download: true,
+                header: true,
+                complete: function(results) {
+                    try {
+                        lessonData = convertCsvToAppFormat(results.data);
+                        
+                        // 데이터가 비어있는지 확인
+                        if (Object.keys(lessonData).length === 0) {
+                            throw new Error("데이터가 없습니다. 헤더 양식을 확인해주세요.");
+                        }
+
+                        // 로딩 성공 -> 앱 초기화
+                        document.getElementById('loading-overlay').classList.add('hidden');
+                        document.getElementById('loading-overlay').classList.remove('flex');
+                        
+                        // 구글 CSE 스크립트 로드
+                        loadGoogleSearch(ACTIVE_CSE_ID);
+                        
+                        // 메인 화면 보이기
+                        const mainApp = document.getElementById('main-app');
+                        mainApp.classList.remove('hidden');
+                        setTimeout(() => mainApp.classList.remove('opacity-0'), 50);
+
+                        // 드롭다운 초기화
+                        initGradeDropdown();
+
+                    } catch(err) {
+                        document.getElementById('loading-overlay').classList.add('hidden');
+                        showMessage("❌ 시트 데이터를 변환하지 못했습니다.\n양식이 템플릿과 일치하는지 확인해 주세요.");
+                        console.error(err);
+                    }
+                },
+                error: function(err) {
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    showMessage("❌ 구글 시트를 불러오지 못했습니다.\n주소가 정확한지, '링크가 있는 모든 사용자 보기'로 공유되었는지 확인하세요.");
+                }
+            });
+        }
+
+        // CSV 평면 데이터를 앱의 4단계 깊이(학년>과목>단원>차시) JSON 구조로 변환
+        function convertCsvToAppFormat(rows) {
+            const tree = {};
+
+            // 과목 이름으로 카테고리(질문 유형) 자동 유추
+            const guessCategory = (subj) => {
+                if(subj.includes('국어')) return '국어';
+                if(subj.includes('도덕')) return '도덕';
+                if(subj.includes('수학')) return '수학';
+                if(subj.includes('음악') || subj.includes('미술') || subj.includes('예술')) return '예술';
+                return '기본'; // 통합, 사회, 과학 등
+            };
+
+            rows.forEach(row => {
+                const grade = (row['학년'] || '').trim();
+                const subject = (row['과목'] || '').trim();
+                const unit = (row['단원'] || '').trim();
+                const lesson = (row['차시'] || '').trim();
+                
+                // 필수 값이 하나라도 없으면 건너뜀 (빈 줄 무시)
+                if(!grade || !subject || !unit || !lesson) return;
+
+                if(!tree[grade]) tree[grade] = { subjects: {} };
+                if(!tree[grade].subjects[subject]) {
+                    tree[grade].subjects[subject] = { 
+                        name: subject, 
+                        category: guessCategory(subject), 
+                        units: {} 
+                    };
+                }
+                
+                const unitKey = "u_" + unit.replace(/\s/g, ''); // 고유 키 생성
+                if(!tree[grade].subjects[subject].units[unitKey]) {
+                    tree[grade].subjects[subject].units[unitKey] = { name: unit, lessons: {} };
+                }
+
+                const lessonKey = "l_" + lesson.replace(/\s/g, '');
+                
+                // 쉼표로 분리하여 배열로 만듦
+                const basicStr = row['기본키워드'] || '';
+                const fusionStr = row['융합키워드'] || '';
+                
+                const basicArr = basicStr.split(',').map(s=>s.trim()).filter(s=>s.length > 0);
+                const fusionArr = fusionStr.split(',').map(s=>s.trim()).filter(s=>s.length > 0);
+
+                tree[grade].subjects[subject].units[unitKey].lessons[lessonKey] = {
+                    name: lesson,
+                    basicKeywords: basicArr,
+                    fusionKeywords: fusionArr
+                };
+            });
+
+            return tree;
+        }
+
+        // --- 7. 메인 앱 구동 로직 (기존 기능 연동) ---
+        
+        function loadGoogleSearch(cseId) {
+            const placeholder = document.getElementById('search-placeholder');
+            const cseScript = document.createElement('script');
+            cseScript.src = `https://cse.google.com/cse.js?cx=${cseId}`;
+            cseScript.async = true;
+            document.head.appendChild(cseScript);
+        }
+
+        const quest2Data = {
+            "기본": [ { title: "삶과 연계", text: "조사해서 새롭게 찾아낸 사실을 나의 일상이나 주변에서 언제, 어디서 볼 수 있을까요?" }, { title: "왜 (탐구심)", text: "조사한 내용 중 가장 신기했던 것을 고르고, '왜 그럴까?'에 대한 나의 생각은 무엇인가요?" }, { title: "가치·태도", text: "조사한 자료를 읽고 나서 내 생각이 어떻게 바뀌었는지, 혹은 새롭게 느낀 점은 무엇인가요?" } ],
+            "국어": [ { title: "삶과 연계", text: "조사하면서 찾은 새로운 낱말이나 표현, 글의 내용을 내 생활 속에서 언제 직접 써볼 수 있을까요?" }, { title: "왜 (탐구심)", text: "조사한 자료 속 인물이나 글쓴이가 왜 그런 말과 행동을 했을지 짐작해 본 나의 생각은 무엇인가요?" }, { title: "가치·태도", text: "조사한 글이나 작품을 읽고 나서 내 마음에 어떤 생각이나 다짐이 남았나요?" } ],
+            "도덕": [ { title: "삶과 연계", text: "조사한 내용 속의 올바른 행동이나 가치를 나의 실제 생활에서 어떻게 실천할 수 있을까요?" }, { title: "왜 (탐구심)", text: "조사한 내용을 바탕으로, 사람들이 왜 이런 행동이나 마음을 가져야 하는지 나만의 이유는 무엇일까요?" }, { title: "가치·태도", text: "조사한 이야기나 상황을 보며, 나에게 비슷한 일이 생긴다면 어떻게 행동할까요?" } ],
+            "수학": [ { title: "삶과 연계", text: "조사해서 찾아낸 수학 원리나 방법이 나의 생활이나 주변 물건에서 어떻게 쓰이고 있을까요?" }, { title: "왜 (탐구심)", text: "조사한 수학 규칙이나 방법이 왜 이렇게 만들어졌을지, 자료를 보며 든 나의 생각은 무엇인가요?" }, { title: "가치·태도", text: "수학 원리를 직접 조사해 보며 이 방법이 왜 편리하고 필요한지 새롭게 느낀 점은 무엇인가요?" } ],
+            "예술": [ { title: "삶과 연계", text: "조사한 예술 작품을 다시 감상한다면, 어떤 분위기나 장소에서 보고 듣는 것이 가장 어울릴까요?" }, { title: "왜 (탐구심)", text: "조사한 자료를 바탕으로, 예술가가 이 작품을 통해 전하고 싶었던 마음은 무엇이었을까요?" }, { title: "가치·태도", text: "작품을 조사하고 감상하면서 내 마음에 가장 깊게 남은 부분과 솔직한 느낌은 무엇인가요?" } ]
+        };
+
+        const gradeSelect = document.getElementById('grade-select');
+        const subjectSelect = document.getElementById('subject-select');
+        const unitSelect = document.getElementById('unit-select');
+        const lessonSelect = document.getElementById('lesson-select');
+        const keywordContainer = document.getElementById('keyword-container');
+        const searchInput = document.getElementById('search-input');
+        const searchBtnIcon = document.getElementById('search-btn');
+
+        let currentSubjectCategory = "기본";
+
+        function executeGoogleSearch(query) {
+            if (!query) return;
+            searchInput.value = query;
+            document.getElementById('search-placeholder').style.opacity = '0';
+            document.getElementById('search-placeholder').style.pointerEvents = 'none';
+            document.getElementById('cse-wrapper').style.opacity = '1';
+            document.getElementById('cse-wrapper').style.pointerEvents = 'auto';
+
+            // 💡 튜토리얼 모드일 때는 구글 API 호출 대신 가짜 검색 결과 노출
+            if (isTutorialMode) {
+                const cseWrapper = document.getElementById('cse-wrapper');
+                cseWrapper.innerHTML = `
+                    <div class="p-5 flex flex-col gap-4 bg-gray-50 h-full">
+                        <p class="text-sm text-purple-600 font-bold mb-2">💡 튜토리얼용 가상 검색 결과입니다.</p>
+                        
+                        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-purple-300 transition-colors cursor-pointer">
+                            <a href="#" class="text-blue-600 font-bold text-lg hover:underline block mb-1" onclick="event.preventDefault()">[체험용] ${query} - 초등 백과사전</a>
+                            <p class="text-green-700 text-xs mb-2">https://terms.naver.com/tutorial</p>
+                            <p class="text-sm text-gray-600"><strong>${query}</strong>에 대한 쉽고 재미있는 설명이 나옵니다. (실제 앱에서는 안전하게 필터링된 구글 맞춤검색 결과가 이곳에 나타납니다.)</p>
+                        </div>
+
+                        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-purple-300 transition-colors cursor-pointer">
+                            <a href="#" class="text-blue-600 font-bold text-lg hover:underline block mb-1" onclick="event.preventDefault()">[체험용] 위키백과: ${query}</a>
+                            <p class="text-green-700 text-xs mb-2">https://ko.wikipedia.org/wiki/${query}</p>
+                            <p class="text-sm text-gray-600">이곳에서 자세한 정보를 찾고, 오른쪽 <strong class="text-blue-500">배움 공책</strong>에 내가 새롭게 알게 된 사실을 키보드나 펜으로 정리해 보세요!</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            if (window.google && google.search && google.search.cse && google.search.cse.element) {
+                const element = google.search.cse.element.getAllElements()[0];
+                if (element) { element.execute(query); return; }
+            }
+            
+            let attempts = 0;
+            const trySearch = setInterval(() => {
+                attempts++;
+                if (window.google && google.search && google.search.cse && google.search.cse.element) {
+                    const element = google.search.cse.element.getAllElements()[0];
+                    if (element) { element.execute(query); clearInterval(trySearch); }
+                }
+                if (attempts > 10) clearInterval(trySearch);
+            }, 500);
+        }
+
+        searchBtnIcon.addEventListener('click', () => executeGoogleSearch(searchInput.value));
+        searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') executeGoogleSearch(searchInput.value); });
+
+        function initGradeDropdown() {
+            const grades = Object.keys(lessonData).sort();
+            grades.forEach(gradeName => {
+                const option = document.createElement('option');
+                option.value = gradeName;
+                option.textContent = gradeName;
+                gradeSelect.appendChild(option);
+            });
+            showPlaceholderKeywordMessage();
+            updateQ2Select("기본");
+        }
+
+        // 드롭다운 체인 이벤트 리스너들
+        gradeSelect.addEventListener('change', (e) => {
+            const selectedGrade = e.target.value;
+            subjectSelect.innerHTML = '<option value="">📚 과목 선택</option>';
+            unitSelect.innerHTML = '<option value="">📖 단원 선택</option>';
+            lessonSelect.innerHTML = '<option value="">⏰ 차시 선택</option>';
+            subjectSelect.disabled = true; unitSelect.disabled = true; lessonSelect.disabled = true;
+            keywordContainer.innerHTML = '';
+            
+            if (selectedGrade && lessonData[selectedGrade] && lessonData[selectedGrade].subjects) {
+                subjectSelect.disabled = false;
+                const subjects = lessonData[selectedGrade].subjects;
+                for (const [subjKey, subjInfo] of Object.entries(subjects)) {
+                    const option = document.createElement('option');
+                    option.value = subjKey;
+                    option.dataset.category = subjInfo.category || "기본"; 
+                    option.textContent = subjInfo.name;
+                    subjectSelect.appendChild(option);
+                }
+            }
+            showPlaceholderKeywordMessage();
+            currentSubjectCategory = "기본";
+            updateQ2Select(currentSubjectCategory);
+        });
+
+        subjectSelect.addEventListener('change', (e) => {
+            const selectedGrade = gradeSelect.value;
+            const selectedSubject = e.target.value;
+            const selectedOption = e.target.options[e.target.selectedIndex];
+
+            unitSelect.innerHTML = '<option value="">📖 단원 선택</option>';
+            lessonSelect.innerHTML = '<option value="">⏰ 차시 선택</option>';
+            lessonSelect.disabled = true;
+            keywordContainer.innerHTML = '';
+            
+            if (selectedSubject && lessonData[selectedGrade].subjects[selectedSubject]) {
+                currentSubjectCategory = selectedOption.dataset.category || "기본";
+                updateQ2Select(currentSubjectCategory);
+
+                unitSelect.disabled = false;
+                const units = lessonData[selectedGrade].subjects[selectedSubject].units;
+                for (const [unitKey, unitInfo] of Object.entries(units)) {
+                    const option = document.createElement('option');
+                    option.value = unitKey;
+                    option.textContent = unitInfo.name;
+                    unitSelect.appendChild(option);
+                }
+                showPlaceholderKeywordMessage();
+            } else { 
+                unitSelect.disabled = true; 
+                currentSubjectCategory = "기본";
+                updateQ2Select(currentSubjectCategory);
+                showPlaceholderKeywordMessage();
+            }
+        });
+
+        unitSelect.addEventListener('change', (e) => {
+            const selectedGrade = gradeSelect.value;
+            const selectedSubject = subjectSelect.value;
+            const selectedUnit = e.target.value;
+            lessonSelect.innerHTML = '<option value="">⏰ 차시 선택</option>';
+            keywordContainer.innerHTML = '';
+            
+            if (selectedUnit) {
+                lessonSelect.disabled = false;
+                const lessons = lessonData[selectedGrade].subjects[selectedSubject].units[selectedUnit].lessons;
+                for (const [lessonKey, lessonInfo] of Object.entries(lessons)) {
+                    const option = document.createElement('option');
+                    option.value = lessonKey;
+                    option.textContent = lessonInfo.name;
+                    lessonSelect.appendChild(option);
+                }
+            } else { lessonSelect.disabled = true; }
+            showPlaceholderKeywordMessage();
+        });
+
+        lessonSelect.addEventListener('change', (e) => {
+            const selectedGrade = gradeSelect.value;
+            const selectedSubject = subjectSelect.value;
+            const selectedUnit = unitSelect.value;
+            const selectedLesson = e.target.value;
+            keywordContainer.innerHTML = ''; 
+            if (selectedLesson) {
+                const lessonInfo = lessonData[selectedGrade].subjects[selectedSubject].units[selectedUnit].lessons[selectedLesson];
+                createKeywordButtons(lessonInfo.basicKeywords, lessonInfo.fusionKeywords);
+            } else { showPlaceholderKeywordMessage(); }
+        });
+
+        function showPlaceholderKeywordMessage() {
+            keywordContainer.innerHTML = '<span class="text-gray-400 text-sm font-medium">위에서 학년/과목/단원/차시를 선택하면 추천 키워드가 나타납니다.</span>';
+        }
+
+        function createKeywordButtons(basicKeywords, fusionKeywords) {
+            basicKeywords.forEach(keyword => {
+                const btn = document.createElement('button');
+                btn.className = "bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 px-4 py-2 rounded-2xl font-semibold text-sm transition-colors btn-press shadow-sm";
+                btn.textContent = `# ${keyword}`;
+                btn.addEventListener('click', () => { executeGoogleSearch(keyword); searchInput.focus(); });
+                keywordContainer.appendChild(btn);
+            });
+            fusionKeywords.forEach(keyword => {
+                const btn = document.createElement('button');
+                btn.className = "bg-green-50 text-green-600 hover:bg-green-100 border border-green-100 px-4 py-2 rounded-2xl font-semibold text-sm transition-colors btn-press shadow-sm";
+                btn.textContent = `# ${keyword}`;
+                btn.addEventListener('click', () => { executeGoogleSearch(keyword); searchInput.focus(); });
+                keywordContainer.appendChild(btn);
+            });
+        }
+
+        // Q2 연동
+        const q2Select = document.getElementById('q2-select');
+        const q2Textarea = document.getElementById('q2-textarea');
+        const q2NotebookText = document.getElementById('q2-notebook-text');
+
+        function updateQ2Select(category) {
+            q2Select.innerHTML = '<option value="">질문 고르기 ▾</option>';
+            const questions = quest2Data[category] || quest2Data["기본"];
+            questions.forEach((q, idx) => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.textContent = q.title;
+                q2Select.appendChild(option);
+            });
+            resetQ2Text();
+        }
+
+        function resetQ2Text() {
+            q2Textarea.placeholder = "나의 생각을 자유롭게 적어보세요.";
+            q2NotebookText.innerHTML = "선택한 질문에 대한 생각을<br>배움 공책에 적어보세요!";
+        }
+
+        q2Select.addEventListener('change', (e) => {
+            const idx = e.target.value;
+            if (idx !== "") {
+                const q = (quest2Data[currentSubjectCategory] || quest2Data["기본"])[idx];
+                q2Textarea.placeholder = q.text; 
+                q2NotebookText.innerHTML = `<span class="text-gray-700">${q.text}</span><br><span class="text-xs text-green-500 mt-2 block">배움 공책에 정성껏 적어보세요!</span>`;
+            } else {
+                resetQ2Text();
+            }
+        });
+
+        // 3단 변신 및 캔버스
+        const modeBtns = document.querySelectorAll('.mode-btn');
+        const questCards = document.querySelectorAll('.quest-card');
+        let isCanvasInitialized = false; 
+
+        const targetSubmitBtn = document.getElementById('submit-btn');
+        const originalSubmitHTML = targetSubmitBtn.innerHTML;
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const selectedMode = btn.dataset.mode;
+                
+                modeBtns.forEach(b => { b.className = "mode-btn flex-1 rounded-full py-1.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 transition-all btn-press"; });
+                btn.className = "mode-btn flex-1 bg-gray-800 text-white shadow-sm rounded-full py-1.5 text-sm font-bold transition-all btn-press";
+
+                if (selectedMode === 'notebook') {
+                    targetSubmitBtn.disabled = true;
+                    targetSubmitBtn.innerHTML = `<span class="text-gray-500">📝 공책에 직접 적어보세요. </span>`;
+                    targetSubmitBtn.classList.replace('bg-yellow-400', 'bg-gray-200');
+                    targetSubmitBtn.classList.replace('hover:bg-yellow-500', 'cursor-not-allowed');
+                    targetSubmitBtn.classList.remove('text-gray-900', 'border-yellow-500/30');
+                } else {
+                    targetSubmitBtn.disabled = false;
+                    targetSubmitBtn.innerHTML = originalSubmitHTML;
+                    targetSubmitBtn.className = "w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-black text-lg py-4 rounded-2xl shadow-lg transform transition-all btn-press border border-yellow-500/30 flex items-center justify-center gap-2";
+                }
+
+                questCards.forEach(card => {
+                    const title = card.querySelector('.quest-title');
+                    const noteUI = card.querySelector('.input-notebook');
+                    const typeUI = card.querySelector('.input-typing');
+                    const penUI = card.querySelector('.input-pencil');
+
+                    noteUI.classList.add('hidden'); noteUI.classList.remove('flex');
+                    typeUI.classList.add('hidden');
+                    penUI.classList.add('hidden'); penUI.classList.remove('flex');
+
+                    if (selectedMode === 'notebook') {
+                        title.classList.replace('text-lg', 'text-xl');
+                        noteUI.classList.remove('hidden'); noteUI.classList.add('flex');
+                    } else if (selectedMode === 'typing') {
+                        title.classList.replace('text-xl', 'text-lg');
+                        typeUI.classList.remove('hidden');
+                    } else if (selectedMode === 'pencil') {
+                        title.classList.replace('text-xl', 'text-lg');
+                        penUI.classList.remove('hidden'); penUI.classList.add('flex');
+                    }
+                });
+
+                if (selectedMode === 'pencil' && !isCanvasInitialized) {
+                    setTimeout(() => { initCanvases(); isCanvasInitialized = true; }, 50);
+                }
+            });
+        });
+
+        function initCanvases() {
+            document.querySelectorAll('.draw-canvas').forEach(canvas => {
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width; canvas.height = rect.height;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                
+                let isDrawing = false, lastX = 0, lastY = 0;
+
+                const getPos = (e) => {
+                    const r = canvas.getBoundingClientRect();
+                    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                    return { x: cx - r.left, y: cy - r.top };
+                };
+
+                const startDrawing = (e) => {
+                    e.preventDefault(); isDrawing = true;
+                    const pos = getPos(e);
+                    lastX = pos.x; lastY = pos.y;
+                    ctx.beginPath(); ctx.arc(lastX, lastY, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(lastX, lastY);
+                };
+
+                const draw = (e) => {
+                    if (!isDrawing) return;
+                    e.preventDefault();
+                    const pos = getPos(e);
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.strokeStyle = '#334155'; ctx.lineWidth = 3; ctx.fillStyle = '#334155';
+                    ctx.lineTo(pos.x, pos.y); ctx.stroke();
+                    lastX = pos.x; lastY = pos.y;
+                };
+
+                const stopDrawing = () => { isDrawing = false; };
+
+                canvas.addEventListener('mousedown', startDrawing);
+                canvas.addEventListener('mousemove', draw);
+                canvas.addEventListener('mouseup', stopDrawing);
+                canvas.addEventListener('mouseout', stopDrawing);
+                canvas.addEventListener('touchstart', startDrawing, { passive: false });
+                canvas.addEventListener('touchmove', draw, { passive: false });
+                canvas.addEventListener('touchend', stopDrawing);
+                canvas.addEventListener('touchcancel', stopDrawing);
+
+                const clearBtn = canvas.closest('.input-pencil').querySelector('.tool-clear');
+                clearBtn.addEventListener('click', () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+            });
+        }
+
+        // 화면 캡처
+        const submitBtn = document.getElementById('submit-btn');
+        const captureSection = document.getElementById('capture-section');
+        const captureDateEl = document.getElementById('capture-date');
+
+        submitBtn.addEventListener('click', () => {
+            if (submitBtn.disabled) return;
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = "📸 캡처 중입니다...";
+            submitBtn.disabled = true;
+
+            const now = new Date();
+            const days = ['일', '월', '화', '수', '목', '금', '토'];
+            const yy = now.getFullYear().toString().slice(-2);
+            const month = (now.getMonth() + 1).toString().padStart(2, '0');
+            const date = now.getDate().toString().padStart(2, '0');
+            captureDateEl.innerText = `${month}월 ${date}일 ${days[now.getDay()]}요일`;
+            captureDateEl.classList.remove('hidden');
+
+            html2canvas(captureSection, { scale: 2, useCORS: true, backgroundColor: '#FFFCF3' }).then(canvas => {
+                captureDateEl.classList.add('hidden');
+                const link = document.createElement('a');
+                link.download = `나만의_탐구기록장_${yy}.${month}.${date}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                submitBtn.innerHTML = originalText; submitBtn.disabled = false;
+                showMessage("✨ 성공적으로 이미지로 저장되었습니다!\n선생님께 제출해 주세요.");
+            }).catch(err => {
+                console.error(err);
+                captureDateEl.classList.add('hidden');
+                showMessage("캡처 중 오류가 발생했습니다.\n다시 시도해 주세요.");
+                submitBtn.innerHTML = originalText; submitBtn.disabled = false;
+            });
+        });
+
+        // --- 8. 튜토리얼 (체험 모드) 제어 로직 ---
+        const dummyTutorialData = {
+            "체험용 3학년 (가상)": {
+                subjects: {
+                    "science": {
+                        name: "과학", category: "기본",
+                        units: { "u_1": { name: "1. 동물의 세계", lessons: { "l_1": { name: "1차시. 동물 탐구하기", basicKeywords: ["북극곰 특징", "사막여우"], fusionKeywords: ["지구온난화와 동물"] } } } }
+                    }
+                }
+            }
+        };
+
+        const tutorialSteps = [
+            { id: 'grade-select', text: "환영합니다! 🦉\n먼저 좌측 상단의 [학년], [과목], [단원], [차시]를\n차례대로 모두 선택해 보세요." },
+            { id: 'keyword-container', text: "훌륭해요!\n선택을 마치면 선생님이 준비하신\n[추천 키워드 자판기] 버튼들이 나타나요." },
+            { id: 'search-input', text: "추천 키워드를 누르거나,\n직접 검색창에 글을 적고 돋보기를 누르세요!\n(체험판이라 가짜 검색 결과가 나옵니다 😆)" },
+            { id: 'capture-section', text: "조사해서 알게 된 내용은\n우측 '나만의 탐구 기록장'에 정리해요.\n[타자 모드]나 [펜슬 모드]를 활용해 보세요!" },
+            { id: 'submit-btn', text: "탐구를 모두 마쳤다면?\n[이미지로 저장하기]를 눌러 찰칵! 📸\n저장된 사진을 선생님께 제출하면 끝이에요. 🎉" }
+        ];
+
+        let currentTutorialStep = 0;
+
+        document.getElementById('btn-role-tutorial').addEventListener('click', () => {
+            isTutorialMode = true;
+            document.getElementById('role-overlay').style.display = 'none';
+            
+            // 더미 데이터 주입
+            lessonData = dummyTutorialData;
+            
+            // 메인 화면 노출
+            const mainApp = document.getElementById('main-app');
+            mainApp.classList.remove('hidden');
+            setTimeout(() => mainApp.classList.remove('opacity-0'), 50);
+
+            initGradeDropdown();
+            
+            // 튜토리얼 패널 띄우기
+            const panel = document.getElementById('tutorial-panel');
+            panel.classList.remove('hidden');
+            setTimeout(() => {
+                panel.classList.remove('translate-y-10', 'opacity-0');
+            }, 100);
+            
+            updateTutorialStep();
+        });
+
+        function updateTutorialStep() {
+            if(currentTutorialStep >= tutorialSteps.length) {
+                endTutorial();
+                return;
+            }
+            
+            // 하이라이트 초기화 (원래 없던 속성만 제거하도록 변경)
+            document.querySelectorAll('.tutorial-highlight').forEach(el => {
+                el.classList.remove('ring-4', 'ring-purple-500', 'ring-offset-2', 'tutorial-highlight', 'z-[100]');
+                if (el.dataset.tutRelative === 'true') {
+                    el.classList.remove('relative');
+                    delete el.dataset.tutRelative;
+                }
+                if (el.dataset.tutBg === 'true') {
+                    el.classList.remove('bg-white');
+                    delete el.dataset.tutBg;
+                }
+            });
+
+            const step = tutorialSteps[currentTutorialStep];
+            document.getElementById('tutorial-message').innerText = step.text;
+            
+            // 대상 엘리먼트 강조 효과
+            const targetEl = document.getElementById(step.id);
+            if(targetEl) {
+                targetEl.classList.add('ring-4', 'ring-purple-500', 'ring-offset-2', 'tutorial-highlight', 'z-[100]');
+                
+                // 원래 relative가 없던 요소에만 추가하고 꼬리표(dataset) 달기
+                if(!targetEl.classList.contains('relative')) {
+                    targetEl.classList.add('relative');
+                    targetEl.dataset.tutRelative = 'true';
+                }
+
+                // 배경색 보정이 필요한 요소
+                if(step.id === 'capture-section' || step.id === 'keyword-container' || step.id === 'submit-btn') {
+                    if(!targetEl.classList.contains('bg-white')) {
+                        targetEl.classList.add('bg-white');
+                        targetEl.dataset.tutBg = 'true';
+                    }
+                }
+            }
+        }
+
+        document.getElementById('btn-tut-next').addEventListener('click', () => {
+            currentTutorialStep++;
+            updateTutorialStep();
+        });
+
+        document.getElementById('btn-tut-skip').addEventListener('click', endTutorial);
+
+        function endTutorial() {
+            document.getElementById('tutorial-panel').classList.add('opacity-0', 'translate-y-10');
+            setTimeout(() => {
+                document.getElementById('tutorial-panel').classList.add('hidden');
+            }, 500);
+            
+            document.querySelectorAll('.tutorial-highlight').forEach(el => {
+                el.classList.remove('ring-4', 'ring-purple-500', 'ring-offset-2', 'tutorial-highlight', 'z-[100]');
+                if (el.dataset.tutRelative === 'true') {
+                    el.classList.remove('relative');
+                    delete el.dataset.tutRelative;
+                }
+                if (el.dataset.tutBg === 'true') {
+                    el.classList.remove('bg-white');
+                    delete el.dataset.tutBg;
+                }
+            });
+            showMessage("튜토리얼이 끝났습니다!\n가상 데이터로 앱을 조금 더 자유롭게 눌러보세요.");
+        }
+
+    </script>
+</body>
+</html>
